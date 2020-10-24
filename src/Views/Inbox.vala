@@ -47,7 +47,7 @@ public class Views.Inbox : Gtk.EventBox {
     public Gee.ArrayList<Widgets.ItemRow?> items_list;
     public Gee.ArrayList<Widgets.ItemRow?> items_opened;
     public Gee.HashMap <string, Widgets.ItemRow> items_uncompleted_added;
-    public Gee.HashMap<string, Widgets.ItemCompletedRow> items_completed_added;
+    public Gee.HashMap<string, Widgets.ItemRow> items_completed_added;
     private int64 temp_id_mapping { get; set; default = 0; }
 
     private const Gtk.TargetEntry[] TARGET_ENTRIES = {
@@ -65,10 +65,7 @@ public class Views.Inbox : Gtk.EventBox {
     }
 
     construct {
-        // print ("Project: %s\n".printf (project.name));
-        // print ("Project ID: %s\n".printf (project.id.to_string ()));
-
-        items_completed_added = new Gee.HashMap<string, Widgets.ItemCompletedRow> ();
+        items_completed_added = new Gee.HashMap<string, Widgets.ItemRow> ();
         items_uncompleted_added = new Gee.HashMap <string, Widgets.ItemRow> ();
         items_list = new Gee.ArrayList<Widgets.ItemRow?> ();
         items_opened = new Gee.ArrayList<Widgets.ItemRow?> ();
@@ -311,7 +308,7 @@ public class Views.Inbox : Gtk.EventBox {
         add (overlay);
 
         magic_button.clicked.connect (() => {
-            add_new_item (-1);
+            add_new_item (Planner.settings.get_int ("new-tasks-top"));
         });
 
         build_drag_and_drop ();
@@ -340,6 +337,13 @@ public class Views.Inbox : Gtk.EventBox {
                 row.reveal_child = true;
                 Planner.event_bus.unselect_all ();
             }
+        });
+
+        completed_listbox.row_activated.connect ((r) => {
+            var row = ((Widgets.ItemRow) r);
+
+            row.reveal_child = true;
+            Planner.event_bus.unselect_all ();
         });
 
         listbox.remove.connect ((row) => {
@@ -456,7 +460,7 @@ public class Views.Inbox : Gtk.EventBox {
                         }
 
                         if (items_completed_added.has_key (item.id.to_string ()) == false) {
-                            var row = new Widgets.ItemCompletedRow (item);
+                            var row = new Widgets.ItemRow (item);
 
                             items_completed_added.set (item.id.to_string (), row);
                             completed_listbox.insert (row, 0);
@@ -623,6 +627,16 @@ public class Views.Inbox : Gtk.EventBox {
                 set_sort_func (order);
             }
         });
+
+        Planner.database.project_show_completed.connect ((p) => {
+            if (project.id == p.id) {
+                if (p.show_completed == 1) {
+                    completed_revealer.reveal_child = true;
+                } else {
+                    completed_revealer.reveal_child = false;
+                }
+            }
+        });
     }
 
     private void remove_item_show_queue (Widgets.ItemRow row) {
@@ -676,7 +690,7 @@ public class Views.Inbox : Gtk.EventBox {
         var all = Planner.database.get_all_completed_items_by_project_no_section_no_parent (project.id);
 
         foreach (var item in all) {
-            var row = new Widgets.ItemCompletedRow (item);
+            var row = new Widgets.ItemRow (item);
 
             completed_listbox.add (row);
             items_completed_added.set (item.id.to_string (), row);
@@ -801,7 +815,7 @@ public class Views.Inbox : Gtk.EventBox {
         var sort_priority_menu = new Widgets.ModelButton (_("Sort by priority"), "edit-flag-symbolic", "");
         var sort_name_menu = new Widgets.ModelButton (_("Sort by name"), "font-x-generic-symbolic", "");
         //var archive_menu = new Widgets.ModelButton (_("Archive project"), "planner-archive-symbolic");
-        var share_item = new Widgets.ModelButton (_("Share"), "emblem-shared-symbolic", "", true);
+        var share_item = new Widgets.ModelButton (_("Utilities"), "applications-utilities-symbolic", "", true);
 
         var delete_menu = new Widgets.ModelButton (_("Delete"), "user-trash-symbolic");
         delete_menu.get_style_context ().add_class ("menu-danger");
@@ -948,10 +962,12 @@ public class Views.Inbox : Gtk.EventBox {
                 share_menu = new Gtk.Menu ();
 
                 var share_mail = new Widgets.ImageMenuItem (_("Send by e-mail"), "internet-mail-symbolic");
-                var share_markdown_menu = new Widgets.ImageMenuItem (_("Markdown"), "planner-markdown-symbolic");
+                var share_markdown_menu = new Widgets.ImageMenuItem (_("Share on Markdown"), "planner-markdown-symbolic");
+                var hide_items_menu = new Widgets.ImageMenuItem (_("Hide all tasks details"), "view-restore-symbolic");
 
                 share_menu.add (share_mail);
                 share_menu.add (share_markdown_menu);
+                share_menu.add (hide_items_menu);
                 share_menu.show_all ();
 
                 share_mail.activate.connect (() => {
@@ -960,6 +976,11 @@ public class Views.Inbox : Gtk.EventBox {
         
                 share_markdown_menu.activate.connect (() => {
                     project.share_markdown ();
+                });
+
+                hide_items_menu.activate.connect (() => {
+                    Planner.event_bus.hide_items_project (project.id);
+                    popover.popdown ();
                 });
             }
 
@@ -1229,36 +1250,40 @@ public class Views.Inbox : Gtk.EventBox {
 
     private void set_sort_func (int order) {
         listbox.set_sort_func ((row1, row2) => {
-            var item1 = ((Widgets.ItemRow) row1).item;
-            var item2 = ((Widgets.ItemRow) row2).item;
+            if (row1 is Widgets.ItemRow && row2 is Widgets.ItemRow) {
+                var item1 = ((Widgets.ItemRow) row1).item;
+                var item2 = ((Widgets.ItemRow) row2).item;
 
-            if (order == 0) {
-                return 0;
-            } else if (order == 1) {
-                if (item1.due_date != "" && item2.due_date != "") {
-                    var date1 = new GLib.DateTime.from_iso8601 (item1.due_date, new GLib.TimeZone.local ());
-                    var date2 = new GLib.DateTime.from_iso8601 (item2.due_date, new GLib.TimeZone.local ());
+                if (order == 0) {
+                    return 0;
+                } else if (order == 1) {
+                    if (item1.due_date != "" && item2.due_date != "") {
+                        var date1 = new GLib.DateTime.from_iso8601 (item1.due_date, new GLib.TimeZone.local ());
+                        var date2 = new GLib.DateTime.from_iso8601 (item2.due_date, new GLib.TimeZone.local ());
 
-                    return date1.compare (date2);
-                }
+                        return date1.compare (date2);
+                    }
 
-                if (item1.due_date == "" && item2.due_date != "") {
-                    return 1;
-                }
+                    if (item1.due_date == "" && item2.due_date != "") {
+                        return 1;
+                    }
 
-                return 0;
-            } else if (order == 2) {
-                if (item1.priority < item2.priority) {
-                    return 1;
-                }
-    
-                if (item1.priority < item2.priority) {
-                    return -1;
-                }
-    
-                return 0;
+                    return 0;
+                } else if (order == 2) {
+                    if (item1.priority < item2.priority) {
+                        return 1;
+                    }
+        
+                    if (item1.priority < item2.priority) {
+                        return -1;
+                    }
+        
+                    return 0;
+                } else {
+                    return item1.content.collate (item2.content);
+                }    
             } else {
-                return item1.content.collate (item2.content);
+                return 0;
             }
         });
 

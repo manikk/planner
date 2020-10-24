@@ -41,14 +41,17 @@ public class Planner : Gtk.Application {
     private static bool silent = false;
     private static int64 load_project = 0;
     private static bool version = false;
+    private static bool clear_database = false;
 
     public const OptionEntry[] PLANNER_OPTIONS = {
         { "version", 'v', 0, OptionArg.NONE, ref version,
         "Display version number", null },
+        { "reset-database", 'r', 0, OptionArg.NONE, ref clear_database,
+        "Reset Planner database", null },
         { "silent", 's', 0, OptionArg.NONE, out silent,
         "Run the Application in background", null },
         { "load-project", 'l', 0, OptionArg.INT64, ref load_project,
-        "Open a project when Planner starts", "PROJECT_ID" },
+        "Open project in separate window", "PROJECT_ID" },
         { null }
     };
 
@@ -78,6 +81,9 @@ public class Planner : Gtk.Application {
         // task_store = new Services.Tasks.Store ();
 
         add_main_option_entries (PLANNER_OPTIONS);
+        
+        // Set lang
+        // GLib.Environment.set_variable ("LANGUAGE", "es", true);
     }
 
     public static Planner _instance = null;
@@ -106,6 +112,41 @@ public class Planner : Gtk.Application {
 
         if (version) {
             print ("%s\n".printf (Constants.VERSION));
+            return;
+        }
+
+        if (clear_database) {
+            print ("%s\n".printf (_("Are you sure you want to reset all?")));
+            print (_("It process removes all stored information without the possibility of undoing it. (y/n): "));
+            string input = stdin.read_line ();
+            
+            if (input == _("y") || input == _("yes") ) {
+                var db_path = Planner.settings.get_string ("database-location-path");
+                if (settings.get_boolean ("database-location-use-default")) {
+                    db_path = Environment.get_user_data_dir () + "/com.github.alainm23.planner/database.db";
+                }
+
+                File db_file = File.new_for_path (db_path);
+                try {
+                    db_file.delete ();
+                } catch (Error err) {
+                    warning (err.message);
+                }
+
+                // Log out Todoist
+                settings.set_string ("todoist-sync-token", "");
+                settings.set_string ("todoist-access-token", "");
+                settings.set_string ("todoist-last-sync", "");
+                settings.set_string ("todoist-user-email", "");
+                settings.set_string ("todoist-user-join-date", "");
+                settings.set_string ("todoist-user-avatar", "");
+                settings.set_string ("todoist-user-image-id", "");
+                settings.set_boolean ("todoist-sync-server", false);
+                settings.set_boolean ("todoist-account", false);
+                settings.set_boolean ("todoist-user-is-premium", false);
+                settings.set_int ("todoist-user-id", 0);
+            }
+
             return;
         }
 
@@ -157,6 +198,7 @@ public class Planner : Gtk.Application {
         default_theme.add_resource_path ("/com/github/alainm23/planner");
 
         utils.apply_theme_changed ();
+        utils.update_font_scale ();
 
         // Set Theme and Icon
         Gtk.Settings.get_default ().set_property ("gtk-icon-theme-name", "elementary");
@@ -192,11 +234,14 @@ public class Planner : Gtk.Application {
         utils.set_quick_add_shortcut (quick_add_shortcut, Planner.settings.get_boolean ("quick-add-enabled"));
 
         if (settings.get_string ("version") != Constants.VERSION) {
-            var dialog = new Widgets.WhatsNew ("com.github.alainm23.planner", _("Planner 2.5 is here, with many design improvements, new features, and more."));
+            var dialog = new Widgets.WhatsNew ("com.github.alainm23.planner", _("Planner %s is here, with many design improvements, new features, and more.".printf (Constants.VERSION)));
 
-            dialog.append ("planner-quick-add", _("Quick Add Improvements"), _("Quick Add comes with a new design and new features."));
-            dialog.append ("preferences-system-windows", _("Multiple Windows Support"), _("Open your projects in separate windows and drag your tasks from one side to the other."));
-            dialog.append ("applications-utilities", _("Multiple Selection Support"), _("Manage multiple tasks at the same time by holding down the <b>Ctrl</b> key and selecting the tasks."));
+            List<string> list = new List<string> ();
+            list.append (_("Github #575 - Homepage was fixed."));
+            list.append (_("Github #336 - The option to change the text size was added."));
+            list.append (_("Updated translations."));
+            
+            dialog.append_notes (_("Bug fixes and performance improvement"), list, 30);
 
             dialog.show_all ();
             dialog.present ();
@@ -212,6 +257,8 @@ public class Planner : Gtk.Application {
             Planner.instance.main_window.go_item (parameter.get_int64 ());
             activate ();
         });
+
+        add_action (show_item);
     }
 
     public static int main (string[] args) {

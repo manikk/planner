@@ -46,6 +46,55 @@
     <binary>com.github.alainm23.planner</binary>
   </provides>
   ​<releases>
+    <release version="2.5.6" date="2020-10-23">
+      <description>
+        <p>Bug fixes and performance improvement</p>
+        <ul>
+          <li>Github #575 - Homepage was fixed.</li>
+          <li>Github #336 - The option to change the text size was added.</li>
+          <li>Updated translations.</li>
+        </ul>
+      </description>
+    </release>
+
+    <release version="2.5.4" date="2020-10-12">
+      <description>
+        <p>Bug fixes and performance improvement</p>
+        <ul>
+          <li>New Quick Find button position.</li>
+          <li>Github #565 - Fixing error when displaying the project name.</li>
+          <li>Github #563 - Fixing error when moving a task to the end of the list.</li>
+          <li>Github #559 #415 - Enabled click to see full details of a completed task.</li>
+          <li>Updated translations</li>
+        </ul>
+      </description>
+    </release>
+
+    <release version="2.5.3" date="2020-10-07">
+      <description>
+        <p>Bug fixes and performance improvement</p>
+        <ul>
+          <li>Github #554 - Reschedule tasks correctly.</li>
+          <li>Fixed bug when dragging and dropping tasks between projects.</li>
+        </ul>
+      </description>
+    </release>
+
+    <release version="2.5.1" date="2020-10-02">
+      <description>
+        <p>Planner 2.5 is here, with many design improvements, new features, and more.</p>
+        <ul>
+          <li>Quick Add comes with a new design and new features.</li>
+          <li>Multiple Windows Support.</li>
+          <li>Multiple Selection Support.</li>
+          <li>Text Formatting.</li>
+          <li>Sort Your Tasks.</li>
+          <li>Export Y Import.</li>
+          <li>New Keyboard Shortcuts.</li>
+        </ul>
+      </description>
+    </release>
+
     <release version="2.4.7" date="2020-07-08">
       <description>
         <p>General bug fixes and improvements.</p>

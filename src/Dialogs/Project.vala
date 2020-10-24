@@ -63,7 +63,7 @@ public class Dialogs.Project : Gtk.Dialog {
     public Gee.ArrayList<Widgets.ItemRow?> items_list;
     public Gee.ArrayList<Widgets.ItemRow?> items_opened;
     public Gee.HashMap <string, Widgets.ItemRow> items_uncompleted_added;
-    public Gee.HashMap<string, Widgets.ItemCompletedRow> items_completed_added;
+    public Gee.HashMap<string, Widgets.ItemRow> items_completed_added;
     private int64 temp_id_mapping { get; set; default = 0; }
     private bool entry_menu_opened = false;
 
@@ -95,6 +95,7 @@ public class Dialogs.Project : Gtk.Dialog {
         Planner.event_bus.hide_new_window_project (project.id);
 
         get_style_context ().add_class ("project-dialog");
+        get_style_context ().add_class ("app");
         int window_x, window_y;
         int width, height;
 
@@ -109,7 +110,7 @@ public class Dialogs.Project : Gtk.Dialog {
         
         set_size_request (width, height);
 
-        items_completed_added = new Gee.HashMap<string, Widgets.ItemCompletedRow> ();
+        items_completed_added = new Gee.HashMap<string, Widgets.ItemRow> ();
         items_uncompleted_added = new Gee.HashMap <string, Widgets.ItemRow> ();
         items_list = new Gee.ArrayList<Widgets.ItemRow?> ();
         items_opened = new Gee.ArrayList<Widgets.ItemRow?> ();
@@ -733,7 +734,7 @@ public class Dialogs.Project : Gtk.Dialog {
                         }
 
                         if (items_completed_added.has_key (item.id.to_string ()) == false) {
-                            var row = new Widgets.ItemCompletedRow (item);
+                            var row = new Widgets.ItemRow (item);
 
                             items_completed_added.set (item.id.to_string (), row);
                             completed_listbox.insert (row, 0);
@@ -1016,7 +1017,7 @@ public class Dialogs.Project : Gtk.Dialog {
 
     private void add_completed_items () {
         foreach (var item in Planner.database.get_all_completed_items_by_project_no_section_no_parent (project.id)) {
-            var row = new Widgets.ItemCompletedRow (item);
+            var row = new Widgets.ItemRow (item);
 
             completed_listbox.add (row);
             items_completed_added.set (item.id.to_string (), row);
@@ -1059,24 +1060,34 @@ public class Dialogs.Project : Gtk.Dialog {
         source = (Widgets.ItemRow) row;
 
         if (target != null) {
-            if (source.item.section_id != 0) {
-                source.item.section_id = 0;
-
-                if (source.item.is_todoist == 1) {
-                    Planner.todoist.move_item_to_section (source.item, 0);
+            if (source.item.is_todoist == project.is_todoist) {
+                if (source.item.project_id != project.id) {
+                    Planner.database.update_item_project_id (source.item, project.id);
                 }
+
+                if (source.item.section_id != 0) {
+                    source.item.section_id = 0;
+    
+                    if (source.item.is_todoist == 1) {
+                        Planner.todoist.move_item_to_section (source.item, 0);
+                    }
+                }   
+    
+                source.get_parent ().remove (source);
+                items_list.remove (source);
+                items_uncompleted_added.set (source.item.id.to_string (), source);
+    
+                listbox.insert (source, target.get_index () + 1);
+                items_list.insert (target.get_index () + 1, source);
+                items_uncompleted_added.set (source.item.id.to_string (), source);
+    
+                listbox.show_all ();
+                update_item_order ();
+            } else {
+                Planner.notifications.send_notification (
+                    _("Unable to move task")
+                );
             }
-
-            source.get_parent ().remove (source);
-            items_list.remove (source);
-            items_uncompleted_added.set (source.item.id.to_string (), source);
-
-            listbox.insert (source, target.get_index () + 1);
-            items_list.insert (target.get_index () + 1, source);
-            items_uncompleted_added.set (source.item.id.to_string (), source);
-
-            listbox.show_all ();
-            update_item_order ();
         }
     }
 
@@ -1086,24 +1097,34 @@ public class Dialogs.Project : Gtk.Dialog {
         var row = ((Gtk.Widget[]) selection_data.get_data ())[0];
         source = (Widgets.ItemRow) row;
 
-        if (source.item.section_id != 0) {
-            source.item.section_id = 0;
-            if (source.item.is_todoist == 1) {
-                Planner.todoist.move_item_to_section (source.item, 0);
+        if (source.item.is_todoist == project.is_todoist) {
+            if (source.item.project_id != project.id) {
+                Planner.database.update_item_project_id (source.item, project.id);
             }
+
+            if (source.item.section_id != 0) {
+                source.item.section_id = 0;
+                if (source.item.is_todoist == 1) {
+                    Planner.todoist.move_item_to_section (source.item, 0);
+                }
+            }
+    
+            source.get_parent ().remove (source);
+            items_list.remove (source);
+            items_uncompleted_added.set (source.item.id.to_string (), source);
+    
+            listbox.insert (source, 0);
+            items_list.insert (0, source);
+            items_uncompleted_added.set (source.item.id.to_string (), source);
+    
+            listbox.show_all ();
+            update_item_order ();
+            check_listbox_margin ();
+        } else {
+            Planner.notifications.send_notification (
+                _("Unable to move task")
+            );
         }
-
-        source.get_parent ().remove (source);
-        items_list.remove (source);
-        items_uncompleted_added.set (source.item.id.to_string (), source);
-
-        listbox.insert (source, 0);
-        items_list.insert (0, source);
-        items_uncompleted_added.set (source.item.id.to_string (), source);
-
-        listbox.show_all ();
-        update_item_order ();
-        check_listbox_margin ();
     }
 
     public bool on_drag_motion (Gdk.DragContext context, int x, int y, uint time) {
@@ -1147,7 +1168,7 @@ public class Dialogs.Project : Gtk.Dialog {
         var sort_priority_menu = new Widgets.ModelButton (_("Sort by priority"), "edit-flag-symbolic", "");
         var sort_name_menu = new Widgets.ModelButton (_("Sort by name"), "font-x-generic-symbolic", "");
         //var archive_menu = new Widgets.ModelButton (_("Archive project"), "planner-archive-symbolic");
-        var share_item = new Widgets.ModelButton (_("Share"), "emblem-shared-symbolic", "", true);
+        var share_item = new Widgets.ModelButton (_("Utilities"), "applications-utilities-symbolic", "", true);
 
         var delete_menu = new Widgets.ModelButton (_("Delete"), "user-trash-symbolic");
         delete_menu.get_style_context ().add_class ("menu-danger");
@@ -1224,7 +1245,7 @@ public class Dialogs.Project : Gtk.Dialog {
 
             var message_dialog = new Granite.MessageDialog.with_image_from_icon_name (
                 _("Delete project"),
-                _("Are you sure you want to delete <b>%s</b>?".printf (project.name)),
+                _("Are you sure you want to delete <b>%s</b>?".printf (Planner.utils.get_dialog_text (project.name))),
                 "user-trash-full",
             Gtk.ButtonsType.CANCEL);
 
@@ -1283,10 +1304,12 @@ public class Dialogs.Project : Gtk.Dialog {
                 share_menu = new Gtk.Menu ();
 
                 var share_mail = new Widgets.ImageMenuItem (_("Send by e-mail"), "internet-mail-symbolic");
-                var share_markdown_menu = new Widgets.ImageMenuItem (_("Markdown"), "planner-markdown-symbolic");
+                var share_markdown_menu = new Widgets.ImageMenuItem (_("Share on Markdown"), "planner-markdown-symbolic");
+                var hide_items_menu = new Widgets.ImageMenuItem (_("Hide all tasks details"), "view-restore-symbolic");
 
                 share_menu.add (share_mail);
                 share_menu.add (share_markdown_menu);
+                share_menu.add (hide_items_menu);
                 share_menu.show_all ();
 
                 share_mail.activate.connect (() => {
@@ -1295,6 +1318,11 @@ public class Dialogs.Project : Gtk.Dialog {
         
                 share_markdown_menu.activate.connect (() => {
                     project.share_markdown ();
+                });
+
+                hide_items_menu.activate.connect (() => {
+                    Planner.event_bus.hide_items_project (project.id);
+                    popover.popdown ();
                 });
             }
 

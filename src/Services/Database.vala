@@ -57,7 +57,7 @@ public class Services.Database : GLib.Object {
     public signal void item_completed (Objects.Item item);
     public signal void item_uncompleted (Objects.Item item);
     public signal void delete_undo_item (Objects.Item item);
-    public signal void item_moved (Objects.Item item, int64 project_id, int64 old_project_id);
+    public signal void item_moved (Objects.Item item, int64 project_id, int64 old_project_id, int index);
     public signal void item_section_moved (Objects.Item item, int64 section_id, int64 old_section_id);
     public signal void item_id_updated (int64 current_id, int64 new_id);
 
@@ -163,7 +163,6 @@ public class Services.Database : GLib.Object {
             Planner.database.add_int_column ("Projects", "sort_order", 0);
         }
     }
-
     public void reset_all () {
         File db_path = File.new_for_path (db_path);
         try {
@@ -2722,6 +2721,36 @@ public class Services.Database : GLib.Object {
         }
     }
 
+    public void update_item_project_id (Objects.Item item, int64 project_id) {
+        Sqlite.Statement stmt;
+        string sql;
+        int res;
+        int64 old_project_id = item.project_id;
+        item.project_id = project_id;
+
+        sql = """
+            UPDATE Items SET project_id = ? WHERE id = ?;
+        """;
+
+        res = db.prepare_v2 (sql, -1, out stmt);
+        assert (res == Sqlite.OK);
+
+        res = stmt.bind_int64 (1, item.project_id);
+        assert (res == Sqlite.OK);
+
+        res = stmt.bind_int64 (2, item.id);
+        assert (res == Sqlite.OK);
+
+        if (stmt.step () != Sqlite.DONE) {
+            warning ("Error: %d: %s", db.errcode (), db.errmsg ());
+        } else {
+            check_project_count (old_project_id);
+            check_project_count (item.project_id);
+        }
+
+        stmt.reset ();
+    }
+
     public bool update_item (Objects.Item item) {
         Sqlite.Statement stmt;
         string sql;
@@ -2932,12 +2961,12 @@ public class Services.Database : GLib.Object {
         stmt.reset ();
     }
 
-    public bool move_item (Objects.Item item, int64 project_id) {
+    public bool move_item (Objects.Item item, int64 project_id, int section_id=0, int index=-1) {
         Sqlite.Statement stmt;
         string sql;
         int res;
         int64 old_project_id = item.project_id;
-        item.section_id = 0;
+        item.section_id = section_id;
 
         subtract_task_counter (old_project_id);
 
@@ -2951,7 +2980,7 @@ public class Services.Database : GLib.Object {
         res = stmt.bind_int64 (1, project_id);
         assert (res == Sqlite.OK);
 
-        res = stmt.bind_int64 (2, 0);
+        res = stmt.bind_int64 (2, section_id);
         assert (res == Sqlite.OK);
 
         res = stmt.bind_int64 (3, item.id);
@@ -2962,7 +2991,7 @@ public class Services.Database : GLib.Object {
             stmt.reset ();
             return false;
         } else {
-            item_moved (item, project_id, old_project_id);
+            item_moved (item, project_id, old_project_id, index);
 
             stmt.reset ();
 
@@ -3282,16 +3311,7 @@ public class Services.Database : GLib.Object {
         res = stmt.bind_int64 (1, id);
         assert (res == Sqlite.OK);
 
-        var all = new Gee.ArrayList<Objects.Item?> ();
-
-        while ((res = stmt.step ()) == Sqlite.ROW) {
-            var i = create_item_from_stmt (stmt);
-
-            all.add (i);
-        }
-
-        stmt.reset ();
-        return all;
+        return get_items_from_stmt (stmt);
     }
 
     public Gee.ArrayList<Objects.Item?> get_all_completed_items_by_project (int64 id) {
@@ -3313,16 +3333,7 @@ public class Services.Database : GLib.Object {
         res = stmt.bind_int64 (1, id);
         assert (res == Sqlite.OK);
 
-        var all = new Gee.ArrayList<Objects.Item?> ();
-
-        while ((res = stmt.step ()) == Sqlite.ROW) {
-            var i = create_item_from_stmt (stmt);
-
-            all.add (i);
-        }
-
-        stmt.reset ();
-        return all;
+        return get_items_from_stmt (stmt);
     }
 
     public Gee.ArrayList<Objects.Item?> get_all_items () {
@@ -3336,6 +3347,34 @@ public class Services.Database : GLib.Object {
                 due_date, due_timezone, due_string, due_lang, due_is_recurring, date_added,
                 date_completed, date_updated, is_todoist, day_order
             FROM Items ORDER BY item_order;
+        """;
+
+        res = db.prepare_v2 (sql, -1, out stmt);
+        assert (res == Sqlite.OK);
+
+        var all = new Gee.ArrayList<Objects.Item?> ();
+
+        while ((res = stmt.step ()) == Sqlite.ROW) {
+            var i = create_item_from_stmt (stmt);
+
+            all.add (i);
+        }
+
+        stmt.reset ();
+        return all;
+    }
+
+    public Gee.ArrayList<Objects.Item?> get_all_items_uncompleted () {
+        Sqlite.Statement stmt;
+        string sql;
+        int res;
+
+        sql = """
+            SELECT id, project_id, section_id, user_id, assigned_by_uid, responsible_uid,
+                sync_id, parent_id, priority, item_order, checked, is_deleted, content, note,
+                due_date, due_timezone, due_string, due_lang, due_is_recurring, date_added,
+                date_completed, date_updated, is_todoist, day_order
+            FROM Items WHERE checked = 0;
         """;
 
         res = db.prepare_v2 (sql, -1, out stmt);
@@ -3372,16 +3411,7 @@ public class Services.Database : GLib.Object {
         res = stmt.bind_int64 (1, id);
         assert (res == Sqlite.OK);
 
-        var all = new Gee.ArrayList<Objects.Item?> ();
-
-        while ((res = stmt.step ()) == Sqlite.ROW) {
-            var i = create_item_from_stmt (stmt);
-
-            all.add (i);
-        }
-
-        stmt.reset ();
-        return all;
+        return get_items_from_stmt (stmt);
     }
 
     public Gee.ArrayList<Objects.Item?> get_all_completed_items () {
@@ -3400,16 +3430,7 @@ public class Services.Database : GLib.Object {
         res = db.prepare_v2 (sql, -1, out stmt);
         assert (res == Sqlite.OK);
 
-        var all = new Gee.ArrayList<Objects.Item?> ();
-
-        while ((res = stmt.step ()) == Sqlite.ROW) {
-            var i = create_item_from_stmt (stmt);
-
-            all.add (i);
-        }
-
-        stmt.reset ();
-        return all;
+        return get_items_from_stmt (stmt);
     }
 
     public Gee.ArrayList<Objects.Item?> get_all_items_by_inbox (int64 id, int is_todoist) {
@@ -3431,16 +3452,7 @@ public class Services.Database : GLib.Object {
         res = stmt.bind_int64 (1, id);
         assert (res == Sqlite.OK);
 
-        var all = new Gee.ArrayList<Objects.Item?> ();
-
-        while ((res = stmt.step ()) == Sqlite.ROW) {
-            var i = create_item_from_stmt (stmt);
-
-            all.add (i);
-        }
-
-        stmt.reset ();
-        return all;
+        return get_items_from_stmt (stmt);
     }
 
     public Gee.ArrayList<Objects.Item?> get_all_items_by_project_no_section_no_parent (int64 id) {
@@ -3462,16 +3474,7 @@ public class Services.Database : GLib.Object {
         res = stmt.bind_int64 (1, id);
         assert (res == Sqlite.OK);
 
-        var all = new Gee.ArrayList<Objects.Item?> ();
-
-        while ((res = stmt.step ()) == Sqlite.ROW) {
-            var i = create_item_from_stmt (stmt);
-
-            all.add (i);
-        }
-
-        stmt.reset ();
-        return all;
+        return get_items_from_stmt (stmt);
     }
 
     public Gee.ArrayList<Objects.Item?> get_all_completed_items_by_project_no_section_no_parent (int64 id) {
@@ -3493,16 +3496,7 @@ public class Services.Database : GLib.Object {
         res = stmt.bind_int64 (1, id);
         assert (res == Sqlite.OK);
 
-        var all = new Gee.ArrayList<Objects.Item?> ();
-
-        while ((res = stmt.step ()) == Sqlite.ROW) {
-            var i = create_item_from_stmt (stmt);
-
-            all.add (i);
-        }
-
-        stmt.reset ();
-        return all;
+        return get_items_from_stmt (stmt);
     }
 
     public Gee.ArrayList<Objects.Item?> get_all_items_by_project_no_section (Objects.Project project) {
@@ -3524,16 +3518,7 @@ public class Services.Database : GLib.Object {
         res = stmt.bind_int64 (1, project.id);
         assert (res == Sqlite.OK);
 
-        var all = new Gee.ArrayList<Objects.Item?> ();
-
-        while ((res = stmt.step ()) == Sqlite.ROW) {
-            var i = create_item_from_stmt (stmt);
-
-            all.add (i);
-        }
-
-        stmt.reset ();
-        return all;
+        return get_items_from_stmt (stmt);
     }
 
     public Gee.ArrayList<Objects.Item?> get_all_items_by_section_no_parent (Objects.Section section) {
@@ -3555,16 +3540,7 @@ public class Services.Database : GLib.Object {
         res = stmt.bind_int64 (1, section.id);
         assert (res == Sqlite.OK);
 
-        var all = new Gee.ArrayList<Objects.Item?> ();
-
-        while ((res = stmt.step ()) == Sqlite.ROW) {
-            var i = create_item_from_stmt (stmt);
-
-            all.add (i);
-        }
-
-        stmt.reset ();
-        return all;
+        return get_items_from_stmt (stmt);
     }
 
     public Gee.ArrayList<Objects.Item?> get_all_completed_items_by_section_no_parent (Objects.Section section) {
@@ -3586,16 +3562,7 @@ public class Services.Database : GLib.Object {
         res = stmt.bind_int64 (1, section.id);
         assert (res == Sqlite.OK);
 
-        var all = new Gee.ArrayList<Objects.Item?> ();
-
-        while ((res = stmt.step ()) == Sqlite.ROW) {
-            var i = create_item_from_stmt (stmt);
-
-            all.add (i);
-        }
-
-        stmt.reset ();
-        return all;
+        return get_items_from_stmt (stmt);
     }
 
     public Gee.ArrayList<Objects.Item?> get_all_items_by_section (int64 id) {
@@ -3617,16 +3584,7 @@ public class Services.Database : GLib.Object {
         res = stmt.bind_int64 (1, id);
         assert (res == Sqlite.OK);
 
-        var all = new Gee.ArrayList<Objects.Item?> ();
-
-        while ((res = stmt.step ()) == Sqlite.ROW) {
-            var i = create_item_from_stmt (stmt);
-
-            all.add (i);
-        }
-
-        stmt.reset ();
-        return all;
+        return get_items_from_stmt (stmt);
     }
 
     public Gee.ArrayList<Objects.Item?> get_all_cheks_by_item (int64 id) {
@@ -3648,16 +3606,7 @@ public class Services.Database : GLib.Object {
         res = stmt.bind_int64 (1, id);
         assert (res == Sqlite.OK);
 
-        var all = new Gee.ArrayList<Objects.Item?> ();
-
-        while ((res = stmt.step ()) == Sqlite.ROW) {
-            var i = create_item_from_stmt (stmt);
-
-            all.add (i);
-        }
-
-        stmt.reset ();
-        return all;
+        return get_items_from_stmt (stmt);
     }
 
     public Gee.ArrayList<Objects.Item?> get_all_today_items () {
@@ -3676,11 +3625,10 @@ public class Services.Database : GLib.Object {
         res = db.prepare_v2 (sql, -1, out stmt);
         assert (res == Sqlite.OK);
 
+        var items = get_items_from_stmt (stmt);
         var all = new Gee.ArrayList<Objects.Item?> ();
 
-        while ((res = stmt.step ()) == Sqlite.ROW) {
-            var i = create_item_from_stmt (stmt);
-
+        foreach (var i in items) {
             var due = new GLib.DateTime.from_iso8601 (i.due_date, new GLib.TimeZone.local ());
             if (Planner.utils.is_today (due)) {
                   all.add (i);
@@ -3738,11 +3686,10 @@ public class Services.Database : GLib.Object {
         res = db.prepare_v2 (sql, -1, out stmt);
         assert (res == Sqlite.OK);
 
+        var items = get_items_from_stmt (stmt);
         var all = new Gee.ArrayList<Objects.Item?> ();
 
-        while ((res = stmt.step ()) == Sqlite.ROW) {
-            var i = create_item_from_stmt (stmt);
-
+        foreach (var i in items) {
             var due = new GLib.DateTime.from_iso8601 (i.due_date, new GLib.TimeZone.local ());
             if (Planner.utils.is_overdue (due)) {
                   all.add (i);
@@ -3769,11 +3716,10 @@ public class Services.Database : GLib.Object {
         res = db.prepare_v2 (sql, -1, out stmt);
         assert (res == Sqlite.OK);
 
+        var items = get_items_from_stmt (stmt);
         var all = new Gee.ArrayList<Objects.Item?> ();
 
-        while ((res = stmt.step ()) == Sqlite.ROW) {
-            var i = create_item_from_stmt (stmt);
-
+        foreach (var i in items) {
             if (i.due_date != "") {
                 var due = new GLib.DateTime.from_iso8601 (i.due_date, new GLib.TimeZone.local ());
                 if (Granite.DateTime.is_same_day (due, date)) {
@@ -3805,16 +3751,7 @@ public class Services.Database : GLib.Object {
         res = stmt.bind_int (1, priority);
         assert (res == Sqlite.OK);
 
-        var all = new Gee.ArrayList<Objects.Item?> ();
-
-        while ((res = stmt.step ()) == Sqlite.ROW) {
-            var i = create_item_from_stmt (stmt);
-
-            all.add (i);
-        }
-
-        stmt.reset ();
-        return all;
+        return get_items_from_stmt (stmt);
     }
 
     public Gee.ArrayList<Objects.Item?> get_items_by_search (string search_text) {
@@ -3836,19 +3773,7 @@ public class Services.Database : GLib.Object {
         res = stmt.bind_text (1, "%" + search_text + "%");
         assert (res == Sqlite.OK);
 
-        res = stmt.bind_text (2, "%" + search_text + "%");
-        assert (res == Sqlite.OK);
-
-        var all = new Gee.ArrayList<Objects.Item?> ();
-
-        while ((res = stmt.step ()) == Sqlite.ROW) {
-            var i = create_item_from_stmt (stmt);
-
-            all.add (i);
-        }
-
-        stmt.reset ();
-        return all;
+        return get_items_from_stmt (stmt);
     }
 
     public Gee.ArrayList<Objects.Item?> get_items_by_label (int64 id) {
@@ -3871,16 +3796,7 @@ public class Services.Database : GLib.Object {
         res = stmt.bind_int64 (1, id);
         assert (res == Sqlite.OK);
 
-        var all = new Gee.ArrayList<Objects.Item?> ();
-
-        while ((res = stmt.step ()) == Sqlite.ROW) {
-            var i = create_item_from_stmt (stmt);
-
-            all.add (i);
-        }
-
-        stmt.reset ();
-        return all;
+        return get_items_from_stmt (stmt);
     }
 
     public bool add_item_label (int64 item_id, Objects.Label label) {
@@ -4153,6 +4069,20 @@ public class Services.Database : GLib.Object {
             stmt.reset ();
             return true;
         }
+    }
+
+    private Gee.ArrayList<Objects.Item?> get_items_from_stmt (Sqlite.Statement stmt) {
+        int res;
+        var items = new Gee.ArrayList<Objects.Item?> ();
+
+        while ((res = stmt.step ()) == Sqlite.ROW) {
+            var i = create_item_from_stmt (stmt);
+
+            items.add (i);
+        }
+
+        stmt.reset ();
+        return items;
     }
 
     private Objects.Item create_item_from_stmt (Sqlite.Statement stmt) {

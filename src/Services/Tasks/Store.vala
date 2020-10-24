@@ -30,7 +30,7 @@ public class Services.Tasks.Store : Object {
 
     public delegate void TasksAddedFunc (Gee.Collection<ECal.Component> tasks, E.Source task_list);
     public delegate void TasksModifiedFunc (Gee.Collection<ECal.Component> tasks);
-    public delegate void TasksRemovedFunc (SList<ECal.ComponentId?> cids);
+    public delegate void TasksRemovedFunc (SList<weak ECal.ComponentId?> cids);
 
     private Gee.Future<E.SourceRegistry> registry;
     private HashTable<string, ECal.Client> task_list_client;
@@ -165,15 +165,18 @@ public class Services.Tasks.Store : Object {
         destroy_task_list_client (task_list, client);
     }
 
-    public void add_task (E.Source list, ECal.Component task) {
-        add_task_async.begin (list, task);
+    public void add_task (E.Source list, ECal.Component task, Widgets.NewItem new_task) {
+        add_task_async.begin (list, task, new_task);
     }
 
-    private async void add_task_async (E.Source list, ECal.Component task) {
+    private async void add_task_async (E.Source list, ECal.Component task, Widgets.NewItem new_task) {
         ECal.Client client;
         try {
             client = get_client (list);
         } catch (Error e) {
+            new_task.loading = false;
+
+            // Send Notification Error
             critical (e.message);
             return;
         }
@@ -191,7 +194,16 @@ public class Services.Tasks.Store : Object {
             if (uid != null) {
                 comp.set_uid (uid);
             }
+            
+            //  var row = new Widgets.NewItem.for_source (new_task.source, new_task.listbox);
+            //  new_task.listbox.add (row);
+            //  new_task.listbox.show_all ();
+
+            new_task.hide_destroy ();
         } catch (GLib.Error error) {
+            new_task.loading = false;
+
+            // Send Notification Error
             critical (error.message);
         }
     }
@@ -212,13 +224,13 @@ public class Services.Tasks.Store : Object {
             debug (@"Reopen $(task.is_instance() ? "instance" : "task") '$(comp.get_uid())'");
 
             comp.set_status (ICal.PropertyStatus.NONE);
-            // task.set_percent_complete (0);
+            task.set_percent_complete (0);
 
 #if E_CAL_2_0
             task.set_completed (new ICal.Time.null_time ());
 #else
             var null_time = ICal.Time.null_time ();
-            // task.set_completed (ref null_time);
+            task.set_completed (ref null_time);
 #endif
 
             update_icalcomponent (client, comp, ECal.ObjModType.ONLY_THIS);
@@ -227,87 +239,87 @@ public class Services.Tasks.Store : Object {
             debug (@"Completing $(task.is_instance() ? "instance" : "task") '$(comp.get_uid())'");
 
             comp.set_status (ICal.PropertyStatus.COMPLETED);
-            // task.set_percent_complete (100);
+            task.set_percent_complete (100);
 
 #if E_CAL_2_0
             task.set_completed (new ICal.Time.today ());
 #else
             var today_time = ICal.Time.today ();
-            // task.set_completed (ref today_time);
+            task.set_completed (ref today_time);
 #endif
 
             update_icalcomponent (client, comp, ECal.ObjModType.THIS_AND_PRIOR);
         }
 
-        if (task.has_recurrences () && !was_completed) {
-#if E_CAL_2_0
-            var duration = new ICal.Duration.null_duration ();
-            duration.set_weeks (520); // roughly 10 years
-            var today = new ICal.Time.today ();
-#else
-            var duration = ICal.Duration.null_duration ();
-            duration.weeks = 520; // roughly 10 years
-            var today = ICal.Time.today ();
-#endif
+//          if (task.has_recurrences () && !was_completed) {
+//  #if E_CAL_2_0
+//              var duration = new ICal.Duration.null_duration ();
+//              duration.set_weeks (520); // roughly 10 years
+//              var today = new ICal.Time.today ();
+//  #else
+//              var duration = ICal.Duration.null_duration ();
+//              duration.weeks = 520; // roughly 10 years
+//              var today = ICal.Time.today ();
+//  #endif
 
-            var start = comp.get_dtstart ();
-            if (today.compare (start) > 0) {
-                start = today;
-            }
-            var end = start.add (duration);
+//              var start = comp.get_dtstart ();
+//              if (today.compare (start) > 0) {
+//                  start = today;
+//              }
+//              var end = start.add (duration);
 
-#if E_CAL_2_0
-            ECal.RecurInstanceCb recur_instance_callback = (instance_comp, instance_start_timet, instance_end_timet, cancellable) => {
-#else
-            ECal.RecurInstanceFn recur_instance_callback = (instance, instance_start_timet, instance_end_timet) => {
-#endif
+//  #if E_CAL_2_0
+//              ECal.RecurInstanceCb recur_instance_callback = (instance_comp, instance_start_timet, instance_end_timet, cancellable) => {
+//  #else
+//              ECal.RecurInstanceFn recur_instance_callback = (instance, instance_start_timet, instance_end_timet) => {
+//  #endif
 
-#if E_CAL_2_0
-                var instance = new ECal.Component ();
-                instance.set_icalcomponent (instance_comp);
-#else
-                unowned ICal.Component instance_comp = instance.get_icalcomponent ();
-#endif
+//  #if E_CAL_2_0
+//                  var instance = new ECal.Component ();
+//                  instance.set_icalcomponent (instance_comp);
+//  #else
+//                  unowned ICal.Component instance_comp = instance.get_icalcomponent ();
+//  #endif
 
-                if (!instance_comp.get_due ().is_null_time ()) {
-                    instance_comp.set_due (instance_comp.get_dtstart ());
-                }
+//                  if (!instance_comp.get_due ().is_null_time ()) {
+//                      instance_comp.set_due (instance_comp.get_dtstart ());
+//                  }
 
-                instance_comp.set_status (ICal.PropertyStatus.NONE);
-                // instance.set_percent_complete (0);
+//                  instance_comp.set_status (ICal.PropertyStatus.NONE);
+//                  instance.set_percent_complete (0);
 
-#if E_CAL_2_0
-                instance.set_completed (new ICal.Time.null_time ());
-#else
-                var null_time = ICal.Time.null_time ();
-                // instance.set_completed (ref null_time);
-#endif
+//  #if E_CAL_2_0
+//                  instance.set_completed (new ICal.Time.null_time ());
+//  #else
+//                  var null_time = ICal.Time.null_time ();
+//                  instance.set_completed (ref null_time);
+//  #endif
 
-                if (instance.has_alarms ()) {
-                    instance.get_alarm_uids ().@foreach ((alarm_uid) => {
-                        ECal.ComponentAlarmTrigger trigger;
-#if E_CAL_2_0
-                        trigger = new ECal.ComponentAlarmTrigger.relative (ECal.ComponentAlarmTriggerKind.RELATIVE_START, new ICal.Duration.null_duration ());
-#else
-                        trigger = ECal.ComponentAlarmTrigger () {
-                            type = ECal.ComponentAlarmTriggerKind.RELATIVE_START,
-                            rel_duration = ICal.Duration.null_duration ()
-                        };
-#endif
-                        instance.get_alarm (alarm_uid).set_trigger (trigger);
-                    });
-                }
+//                  if (instance.has_alarms ()) {
+//                      instance.get_alarm_uids ().@foreach ((alarm_uid) => {
+//                          ECal.ComponentAlarmTrigger trigger;
+//  #if E_CAL_2_0
+//                          trigger = new ECal.ComponentAlarmTrigger.relative (ECal.ComponentAlarmTriggerKind.RELATIVE_START, new ICal.Duration.null_duration ());
+//  #else
+//                          trigger = ECal.ComponentAlarmTrigger () {
+//                              type = ECal.ComponentAlarmTriggerKind.RELATIVE_START,
+//                              rel_duration = ICal.Duration.null_duration ()
+//                          };
+//  #endif
+//                          instance.get_alarm (alarm_uid).set_trigger (trigger);
+//                      });
+//                  }
 
-                update_icalcomponent (client, instance_comp, ECal.ObjModType.THIS_AND_FUTURE);
-                return false; // only generate one instance
-            };
+//                  update_icalcomponent (client, instance_comp, ECal.ObjModType.THIS_AND_FUTURE);
+//                  return false; // only generate one instance
+//              };
 
-#if E_CAL_2_0
-            client.generate_instances_for_object_sync (comp, start.as_timet (), end.as_timet (), null, recur_instance_callback);
-#else
-            client.generate_instances_for_object_sync (comp, start.as_timet (), end.as_timet (), recur_instance_callback);
-#endif
-        }
+//  #if E_CAL_2_0
+//              client.generate_instances_for_object_sync (comp, start.as_timet (), end.as_timet (), null, recur_instance_callback);
+//  #else
+//              client.generate_instances_for_object_sync (comp, start.as_timet (), end.as_timet (), recur_instance_callback);
+//  #endif
+//          }
     }
 
     public void update_task (E.Source list, ECal.Component task, ECal.ObjModType mod_type) {
@@ -325,37 +337,44 @@ public class Services.Tasks.Store : Object {
     }
 
     private void update_icalcomponent (ECal.Client client, ICal.Component comp, ECal.ObjModType mod_type) {
-        try {
-#if E_CAL_2_0
-            client.modify_object_sync (comp, mod_type, ECal.OperationFlags.NONE, null);
-#else
-            client.modify_object_sync (comp, mod_type, null);
-#endif
-        } catch (Error e) {
-            warning (e.message);
-            return;
-        }
-
-        if (comp.get_uid () == null) {
-            return;
-        }
-
-        try {
-            SList<ECal.Component> ecal_tasks;
-            client.get_objects_for_uid_sync (comp.get_uid (), out ecal_tasks, null);
-
-#if E_CAL_2_0
-            var ical_tasks = new SList<ICal.Component> ();
-#else
-            var ical_tasks = new SList<unowned ICal.Component> ();
-#endif
-            foreach (unowned ECal.Component ecal_task in ecal_tasks) {
-                ical_tasks.append (ecal_task.get_icalcomponent ());
+        client.modify_object.begin (comp, mod_type, null, (obj, res) => {
+            try {
+                client.modify_object.end (res);
+            } catch (Error e) {
+                warning (e.message);
             }
+        });
+//          try {
+//  #if E_CAL_2_0
+//              client.modify_object_sync (comp, mod_type, ECal.OperationFlags.NONE, null);
+//  #else
+//              client.modify_object_sync (comp, mod_type, null);
+//  #endif
+//          } catch (Error e) {
+//              warning (e.message);
+//              return;
+//          }
 
-        } catch (Error e) {
-            warning (e.message);
-        }
+//          if (comp.get_uid () == null) {
+//              return;
+//          }
+
+//          try {
+//              SList<ECal.Component> ecal_tasks;
+//              client.get_objects_for_uid_sync (comp.get_uid (), out ecal_tasks, null);
+
+//  #if E_CAL_2_0
+//              var ical_tasks = new SList<ICal.Component> ();
+//  #else
+//              var ical_tasks = new SList<unowned ICal.Component> ();
+//  #endif
+//              foreach (unowned ECal.Component ecal_task in ecal_tasks) {
+//                  ical_tasks.append (ecal_task.get_icalcomponent ());
+//              }
+
+//          } catch (Error e) {
+//              warning (e.message);
+//          }
     }
 
     public void remove_task (E.Source list, ECal.Component task, ECal.ObjModType mod_type) {
@@ -460,9 +479,9 @@ public class Services.Tasks.Store : Object {
                 ecal_tasks.foreach ((task) => {
                     debug_task (task_list, task);
 
-                    //  if (!added_tasks.contains (task)) {
-                    //      added_tasks.add (task);
-                    //  }
+                    if (!added_tasks.contains (task)) {
+                        added_tasks.add (task);
+                    }
                 });
 
             } catch (Error e) {
@@ -470,7 +489,7 @@ public class Services.Tasks.Store : Object {
             }
         });
 
-        // on_tasks_added (added_tasks.read_only_view, task_list);
+        on_tasks_added (added_tasks.read_only_view, task_list);
     }
 
 #if E_CAL_2_0
@@ -487,9 +506,9 @@ public class Services.Tasks.Store : Object {
 
                 ecal_tasks.foreach ((task) => {
                     debug_task (task_list, task);
-                    //  if (!updated_tasks.contains (task)) {
-                    //      updated_tasks.add (task);
-                    //  }
+                    if (!updated_tasks.contains (task)) {
+                        updated_tasks.add (task);
+                    }
                 });
 
             } catch (Error e) {
@@ -497,7 +516,7 @@ public class Services.Tasks.Store : Object {
             }
         });
 
-        // on_tasks_modified (updated_tasks.read_only_view);
+        on_tasks_modified (updated_tasks.read_only_view);
     }
 
 #if E_CAL_2_0
@@ -507,6 +526,6 @@ public class Services.Tasks.Store : Object {
 #endif
         debug (@"Received $(cids.length()) removed task(s) for task list '%s'", task_list.dup_display_name ());
 
-        // on_tasks_removed (cids);
+        on_tasks_removed (cids);
     }
 }

@@ -324,6 +324,10 @@ paned.horizontal > separator {
     background-color: @base_color;
 }
 
+.preferences-dialog {
+    background-color: @bg_color;
+}
+
 .project-dialog {
     background-color: @projectview_color;
 }
@@ -482,6 +486,10 @@ paned.horizontal > separator {
     background-color: @base_color;
 }
 
+.entry-no-border {
+    border-width: 0px 0px 0px 0px;
+}
+
 .content-entry:focus {
     border-color: transparent;
     box-shadow: none;
@@ -567,7 +575,7 @@ paned.horizontal > separator {
 }
 
 .search-icon {
-    background-color: #333333;
+    background-color: #fa1955;
     color: #fff;
     border-radius: 4px;
     padding: 2px;
@@ -582,6 +590,13 @@ paned.horizontal > separator {
 
 .completed-icon {
     background-color: #25b84c;
+    color: #fff;
+    border-radius: 4px;
+    padding: 2px;
+}
+
+.all-tasks-icon {
+    background-color: #28bca3;
     color: #fff;
     border-radius: 4px;
     padding: 2px;
@@ -750,7 +765,7 @@ paned.horizontal > separator {
 }
 
 .title-label {
-    font-size: 12pt;
+    font-size: 1.3em;
 }
 
 .duedate-upcoming {
@@ -771,7 +786,7 @@ paned.horizontal > separator {
 }
 
 .badge-expired {
-    background-color: #ed5353;
+    background-color: #fa1955;
     color: #ffffff;
     border-radius: 50px;
 }
@@ -1242,4 +1257,12 @@ paned.horizontal > separator {
 
 .background-transparent {
     background-color: transparent;
+}
+
+.note-textview {
+    background-color: @projectview_color;
+}
+
+.note-textview text {
+    background: alpha (#3689e6, 0.25);
 }

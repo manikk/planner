@@ -51,7 +51,7 @@ public class Widgets.SectionRow : Gtk.ListBoxRow {
     private uint toggle_timeout = 0;
     public Gee.ArrayList<Widgets.ItemRow?> items_list;
     public Gee.HashMap <string, Widgets.ItemRow> items_uncompleted_added;
-    public Gee.HashMap<string, Widgets.ItemCompletedRow> items_completed_added;
+    public Gee.HashMap<string, Widgets.ItemRow> items_completed_added;
     private bool entry_menu_opened = false;
 
     private const Gtk.TargetEntry[] TARGET_ENTRIES = {
@@ -78,7 +78,7 @@ public class Widgets.SectionRow : Gtk.ListBoxRow {
         selectable = false;
         get_style_context ().add_class ("area-row");
         items_list = new Gee.ArrayList<Widgets.ItemRow?> ();
-        items_completed_added = new Gee.HashMap<string, Widgets.ItemCompletedRow> ();
+        items_completed_added = new Gee.HashMap<string, Widgets.ItemRow> ();
         items_uncompleted_added = new Gee.HashMap <string, Widgets.ItemRow> ();
 
         hidden_button = new Gtk.Button.from_icon_name ("pan-end-symbolic", Gtk.IconSize.MENU);
@@ -342,6 +342,13 @@ public class Widgets.SectionRow : Gtk.ListBoxRow {
             }
         });
 
+        completed_listbox.row_activated.connect ((r) => {
+            var row = ((Widgets.ItemRow) r);
+
+            row.reveal_child = true;
+            Planner.event_bus.unselect_all ();
+        });
+
         Planner.database.item_added.connect ((item, index) => {
             if (section.id == item.section_id && item.parent_id == 0) {
                 var row = new Widgets.ItemRow (item);
@@ -399,7 +406,7 @@ public class Widgets.SectionRow : Gtk.ListBoxRow {
                     }
 
                     if (items_completed_added.has_key (item.id.to_string ()) == false) {
-                        var row = new Widgets.ItemCompletedRow (item);
+                        var row = new Widgets.ItemRow (item);
 
                         items_completed_added.set (item.id.to_string (), row);
                         completed_listbox.insert (row, 0);
@@ -490,7 +497,7 @@ public class Widgets.SectionRow : Gtk.ListBoxRow {
         });
 
         add_button.clicked.connect (() => {
-            add_new_item (0);
+            add_new_item (Planner.settings.get_int ("new-tasks-top"));
         });
 
         name_entry.changed.connect (() => {
@@ -901,7 +908,7 @@ public class Widgets.SectionRow : Gtk.ListBoxRow {
         menu.show_all ();
 
         add_menu.activate.connect (() => {
-            add_new_item (0);
+            add_new_item (Planner.settings.get_int ("new-tasks-top"));
         });
 
         note_menu.activate.connect (() => {
@@ -975,7 +982,7 @@ public class Widgets.SectionRow : Gtk.ListBoxRow {
 
     private void add_completed_items () {
         foreach (var item in Planner.database.get_all_completed_items_by_section_no_parent (section)) {
-            var row = new Widgets.ItemCompletedRow (item);
+            var row = new Widgets.ItemRow (item);
 
             completed_listbox.add (row);
             items_completed_added.set (item.id.to_string (), row);
@@ -1063,29 +1070,39 @@ public class Widgets.SectionRow : Gtk.ListBoxRow {
         source = (Widgets.ItemRow) row;
 
         if (target != null) {
-            if (source.item.section_id != section.id) {
-                Planner.database.on_drag_item_deleted (source, source.item.section_id);
-                source.item.section_id = section.id;
-                if (source.item.is_todoist == 1) {
-                    Planner.todoist.move_item_to_section (source.item, section.id);
+            if (source.item.is_todoist == section.is_todoist) {
+                if (source.item.project_id != section.project_id) {
+                    Planner.database.update_item_project_id (source.item, section.project_id);
                 }
 
-                string move_template = _("Task moved to <b>%s</b>");
+                if (source.item.section_id != section.id) {
+                    Planner.database.on_drag_item_deleted (source, source.item.section_id);
+                    source.item.section_id = section.id;
+                    if (source.item.is_todoist == 1) {
+                        Planner.todoist.move_item_to_section (source.item, section.id);
+                    }
+    
+                    string move_template = _("Task moved to <b>%s</b>");
+                    Planner.notifications.send_notification (
+                        move_template.printf (
+                            section.name
+                        )
+                    );
+                }
+    
+                source.get_parent ().remove (source);
+                items_list.remove (source);
+    
+                listbox.insert (source, target.get_index () + 1);
+                items_list.insert (target.get_index () + 1, source);
+    
+                listbox.show_all ();
+                update_item_order ();
+            } else {
                 Planner.notifications.send_notification (
-                    move_template.printf (
-                        section.name
-                    )
+                    _("Unable to move task")
                 );
             }
-
-            source.get_parent ().remove (source);
-            items_list.remove (source);
-
-            listbox.insert (source, target.get_index () + 1);
-            items_list.insert (target.get_index () + 1, source);
-
-            listbox.show_all ();
-            update_item_order ();
         }
     }
 
@@ -1122,35 +1139,45 @@ public class Widgets.SectionRow : Gtk.ListBoxRow {
         var row = ((Gtk.Widget[]) selection_data.get_data ())[0];
         source = (Widgets.ItemRow) row;
 
-        if (source.item.section_id != section.id) {
-            Planner.database.on_drag_item_deleted (source, source.item.section_id);
-            source.item.section_id = section.id;
-            if (source.item.is_todoist == 1) {
-                Planner.todoist.move_item_to_section (source.item, section.id);
+        if (source.item.is_todoist == section.is_todoist) {
+            if (source.item.project_id != section.project_id) {
+                Planner.database.update_item_project_id (source.item, section.project_id);
             }
-
-            string move_template = _("Task moved to <b>%s</b>");
+            
+            if (source.item.section_id != section.id) {
+                Planner.database.on_drag_item_deleted (source, source.item.section_id);
+                source.item.section_id = section.id;
+                if (source.item.is_todoist == 1) {
+                    Planner.todoist.move_item_to_section (source.item, section.id);
+                } 
+    
+                string move_template = _("Task moved to <b>%s</b>");
+                Planner.notifications.send_notification (
+                    move_template.printf (
+                        section.name
+                    )
+                );
+            }
+    
+            source.get_parent ().remove (source);
+            items_list.remove (source);
+            items_uncompleted_added.set (source.item.id.to_string (), source);
+            
+            listbox.insert (source, 0);
+            items_list.insert (0, source);
+    
+            listbox.show_all ();
+            update_item_order ();
+    
+            listbox_revealer.reveal_child = true;
+            section.collapsed = 1;
+    
+            save (false);
+        } else {
             Planner.notifications.send_notification (
-                move_template.printf (
-                    section.name
-                )
+                _("Unable to move task")
             );
         }
-
-        source.get_parent ().remove (source);
-        items_list.remove (source);
-        items_uncompleted_added.set (source.item.id.to_string (), source);
-        
-        listbox.insert (source, 0);
-        items_list.insert (0, source);
-
-        listbox.show_all ();
-        update_item_order ();
-
-        listbox_revealer.reveal_child = true;
-        section.collapsed = 1;
-
-        save (false);
     }
 
     public bool on_drag_motion (Gdk.DragContext context, int x, int y, uint time) {
@@ -1264,7 +1291,7 @@ public class Widgets.SectionRow : Gtk.ListBoxRow {
         grid.show ();
 
         button.clicked.connect (() => {
-            add_new_item (0);
+            add_new_item (Planner.settings.get_int ("new-tasks-top"));
         });
 
         return grid;

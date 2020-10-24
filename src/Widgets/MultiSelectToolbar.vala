@@ -296,7 +296,7 @@ public class Widgets.MultiSelectToolbar : Gtk.Revealer {
         var priority_1_menu = new Widgets.ModelButton (_("Priority 1"), "priority-4", "");
         var priority_2_menu = new Widgets.ModelButton (_("Priority 2"), "priority-3", "");
         var priority_3_menu = new Widgets.ModelButton (_("Priority 3"), "priority-2", "");
-        priority_4_menu = new Widgets.ModelButton (_("Priority 4"), "flag-outline-light", "");
+        priority_4_menu = new Widgets.ModelButton (_("None"), "flag-outline-light", "");
 
         var popover_grid = new Gtk.Grid ();
         popover_grid.margin_top = 6;
@@ -439,7 +439,7 @@ public class Widgets.MultiSelectToolbar : Gtk.Revealer {
         });
 
         calendar.selection_changed.connect ((date) => {
-            set_due (date.to_string ());
+            set_due (Planner.utils.get_format_date (date).to_string ());
         });
 
         return grid;
@@ -524,7 +524,7 @@ public class SearchProject : Gtk.ListBoxRow {
             icon.gicon = new ThemedIcon ("planner-inbox");
         }
 
-        var content_label = new Gtk.Label (project.name);
+        var content_label = new Gtk.Label (Planner.utils.get_dialog_text (project.name));
         content_label.ellipsize = Pango.EllipsizeMode.END;
         content_label.xalign = 0;
         content_label.use_markup = true;

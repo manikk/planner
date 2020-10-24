@@ -46,6 +46,7 @@ public class Dialogs.ProjectSettings : Gtk.Dialog {
         height_request = 550;
         width_request = 480;
         get_style_context ().add_class ("planner-dialog");
+        get_style_context ().add_class ("app");
         
         name_entry = new Widgets.Entry ();
         name_entry.margin_start = 12;
@@ -279,7 +280,7 @@ public class Dialogs.ProjectSettings : Gtk.Dialog {
             if (message_dialog.run () == Gtk.ResponseType.ACCEPT) {
                 Planner.notifications.send_undo_notification (
                     _("Converting project…"),
-                    Planner.utils.build_undo_object ("convert_project", "project", project.id, "", "")
+                    Planner.utils.build_undo_object ("convert_project", "project", project.id.to_string (), "", "")
                 );
                 Planner.todoist.convert_to_todoist (project);
                 destroy ();

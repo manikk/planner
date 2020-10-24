@@ -989,19 +989,16 @@ public class Utils : GLib.Object {
         var patrons = new Gee.ArrayList<string> ();
 
         patrons.add ("Cassidy James");
-        patrons.add ("Wout");
-        patrons.add ("The Linux Experiment");
-        patrons.add ("William Tumeo");
-        patrons.add ("Cal");
-        patrons.add ("Coryn");
-        patrons.add ("Marco Bluethgen");
         patrons.add ("Luke Gaudreau");
-        patrons.add ("I Sutter");
-        patrons.add ("M");
+        patrons.add ("Marco Bluethgen");
+        patrons.add ("William Tumeo");
         patrons.add ("James");
-        patrons.add ("Sampath Rajapakse");
         patrons.add ("Kyle Riedemann");
         patrons.add ("Richard Prammer");
+        patrons.add ("Robert Zelník");
+        patrons.add ("Jonathan Klimt");
+        patrons.add ("Jeremiah C. Foster");
+        patrons.add ("Mateusz Pogrzebski");
 
         return patrons;
     }
@@ -1190,7 +1187,29 @@ public class Utils : GLib.Object {
     //      item.content = clean_text;
     //  }
 
-    public string build_undo_object (string type, string object_type, int64 object_id, string undo_type, string undo_value) {
+    public void update_font_scale () {
+        string _css = """
+            .app {
+                font-size: %s;
+            }
+        """;
+
+        var provider = new Gtk.CssProvider ();
+
+        try {
+            var css = _css.printf ((100 * Planner.settings.get_double ("font-scale")).to_string () + "%");
+
+            provider.load_from_data (css, css.length);
+            Gtk.StyleContext.add_provider_for_screen (
+                Gdk.Screen.get_default (), provider,
+                Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+            );
+        } catch (GLib.Error e) {
+            debug (e.message);
+        }
+    }
+
+    public string build_undo_object (string type, string object_type, string object_id, string undo_type, string undo_value) {
         var builder = new Json.Builder ();
         builder.begin_object ();
 
@@ -1201,7 +1220,7 @@ public class Utils : GLib.Object {
         builder.add_string_value (object_type);
 
         builder.set_member_name ("object_id");
-        builder.add_int_value (object_id);
+        builder.add_string_value (object_id);
 
         if (undo_type != "") {
             builder.set_member_name ("undo_type");
@@ -1240,6 +1259,55 @@ public class Utils : GLib.Object {
 
     public string get_encode_text (string text) {
         return text.replace ("&", "%26").replace ("#", "%23");
+    }
+
+    /**
+    * Converts two datetimes to one TimeType. The first contains the date,
+    * its time settings are ignored. The second one contains the time itself.
+    */
+    public ICal.Time date_time_to_ical (DateTime date, DateTime? time_local, string? timezone = null) {
+#if E_CAL_2_0
+        var result = new ICal.Time.from_day_of_year (date.get_day_of_year (), date.get_year ());
+#else
+        var result = ICal.Time.from_day_of_year (date.get_day_of_year (), date.get_year ());
+#endif
+        if (time_local != null) {
+            if (timezone != null) {
+#if E_CAL_2_0
+                result.set_timezone (ICal.Timezone.get_builtin_timezone (timezone));
+#else
+                result.zone = ICal.Timezone.get_builtin_timezone (timezone);
+#endif
+            } else {
+#if E_CAL_2_0
+                result.set_timezone (ECal.util_get_system_timezone ());
+#else
+                result.zone = ECal.Util.get_system_timezone ();
+#endif
+            }
+
+#if E_CAL_2_0
+            result.set_is_date (false);
+            result.set_time (time_local.get_hour (), time_local.get_minute (), time_local.get_second ());
+#else
+            result._is_date = 0;
+            result.hour = time_local.get_hour ();
+            result.minute = time_local.get_minute ();
+            result.second = time_local.get_second ();
+#endif
+        } else {
+#if E_CAL_2_0
+            result.set_is_date (true);
+            result.set_time (0, 0, 0);
+#else
+            result._is_date = 1;
+            result.hour = 0;
+            result.minute = 0;
+            result.second = 0;
+#endif
+        }
+
+        return result;
     }
 }
 

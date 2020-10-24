@@ -63,7 +63,7 @@ public class Views.Project : Gtk.EventBox {
     public Gee.ArrayList<Widgets.ItemRow?> items_list;
     public Gee.ArrayList<Widgets.ItemRow?> items_opened;
     public Gee.HashMap <string, Widgets.ItemRow> items_uncompleted_added;
-    public Gee.HashMap<string, Widgets.ItemCompletedRow> items_completed_added;
+    public Gee.HashMap <string, Widgets.ItemRow> items_completed_added;
     private int64 temp_id_mapping { get; set; default = 0; }
     private bool entry_menu_opened = false;
 
@@ -82,7 +82,7 @@ public class Views.Project : Gtk.EventBox {
     }
 
     construct {
-        items_completed_added = new Gee.HashMap<string, Widgets.ItemCompletedRow> ();
+        items_completed_added = new Gee.HashMap<string, Widgets.ItemRow> ();
         items_uncompleted_added = new Gee.HashMap <string, Widgets.ItemRow> ();
         items_list = new Gee.ArrayList<Widgets.ItemRow?> ();
         items_opened = new Gee.ArrayList<Widgets.ItemRow?> ();
@@ -212,7 +212,7 @@ public class Views.Project : Gtk.EventBox {
         top_box.valign = Gtk.Align.START;
         top_box.margin_end = 36;
         top_box.margin_start = 42;
-        // top_box.margin_top = 6;
+        top_box.margin_top = 6;
 
         var submit_button = new Gtk.Button.with_label (_("Save"));
         submit_button.sensitive = false;
@@ -425,7 +425,7 @@ public class Views.Project : Gtk.EventBox {
         check_due_date ();
 
         magic_button.clicked.connect (() => {
-            add_new_item (-1);
+            add_new_item (Planner.settings.get_int ("new-tasks-top"));
         });
 
         // Check Placeholder view
@@ -450,6 +450,13 @@ public class Views.Project : Gtk.EventBox {
                 row.reveal_child = true;
                 Planner.event_bus.unselect_all ();
             }
+        });
+
+        completed_listbox.row_activated.connect ((r) => {
+            var row = ((Widgets.ItemRow) r);
+
+            row.reveal_child = true;
+            Planner.event_bus.unselect_all ();
         });
 
         listbox.remove.connect ((row) => {
@@ -651,7 +658,6 @@ public class Views.Project : Gtk.EventBox {
                 if (project.id == item.project_id) {
                     if (item.section_id == 0 && item.parent_id == 0) {
                         if (items_completed_added.has_key (item.id.to_string ())) {
-                            // items_completed_added.get (item.id.to_string ()).hide_destroy ();
                             items_completed_added.unset (item.id.to_string ());
                         }
 
@@ -687,7 +693,7 @@ public class Views.Project : Gtk.EventBox {
                         }
 
                         if (items_completed_added.has_key (item.id.to_string ()) == false) {
-                            var row = new Widgets.ItemCompletedRow (item);
+                            var row = new Widgets.ItemRow (item);
 
                             items_completed_added.set (item.id.to_string (), row);
                             completed_listbox.insert (row, 0);
@@ -709,7 +715,7 @@ public class Views.Project : Gtk.EventBox {
             }
         });
 
-        Planner.database.item_moved.connect ((item, project_id, old_project_id) => {
+        Planner.database.item_moved.connect ((item, project_id, old_project_id, index) => {
             Idle.add (() => {
                 if (project.id == old_project_id) {
                     if (items_uncompleted_added.has_key (item.id.to_string ())) {
@@ -733,12 +739,16 @@ public class Views.Project : Gtk.EventBox {
                         item_row_removed (row);
                     });
 
-                    listbox.add (row);
                     items_uncompleted_added.set (item.id.to_string (), row);
-                    items_list.add (row);
-
+                    if (index == -1) {
+                        listbox.add (row);
+                        items_list.add (row);
+                    } else {
+                        listbox.insert (row, index);
+                        items_list.insert (index, row);
+                    }
+                    
                     listbox.show_all ();
-
                     check_placeholder_view ();
                     check_listbox_margin ();
                 }
@@ -877,6 +887,18 @@ public class Views.Project : Gtk.EventBox {
                 show_all ();
                 check_listbox_margin ();
                 check_due_date ();
+
+                Timeout.add (125, () => {
+                    Planner.database.get_project_count (project.id);
+        
+                    note_textview.visible = false;
+                    note_textview.visible = true;
+        
+                    check_placeholder_view ();
+                    set_sort_func (project.sort_order);
+        
+                    return false;
+                });
             }
         });
 
@@ -1017,7 +1039,7 @@ public class Views.Project : Gtk.EventBox {
         }
 
         foreach (var item in Planner.database.get_all_completed_items_by_project_no_section_no_parent (project.id)) {
-            var row = new Widgets.ItemCompletedRow (item);
+            var row = new Widgets.ItemRow (item);
 
             completed_listbox.add (row);
             items_completed_added.set (item.id.to_string (), row);
@@ -1060,24 +1082,33 @@ public class Views.Project : Gtk.EventBox {
         source = (Widgets.ItemRow) row;
 
         if (target != null) {
-            if (source.item.section_id != 0) {
-                source.item.section_id = 0;
-
-                if (source.item.is_todoist == 1) {
-                    Planner.todoist.move_item_to_section (source.item, 0);
+            if (source.item.is_todoist == project.is_todoist) {
+                if (source.item.project_id != project.id) {
+                    Planner.database.update_item_project_id (source.item, project.id);
                 }
+
+                if (source.item.section_id != 0) {
+                    source.item.section_id = 0;
+                    if (source.item.is_todoist == 1) {
+                        Planner.todoist.move_item_to_section (source.item, 0);
+                    }
+                }   
+    
+                source.get_parent ().remove (source);
+                items_list.remove (source);
+                items_uncompleted_added.set (source.item.id.to_string (), source);
+    
+                listbox.insert (source, target.get_index () + 1);
+                items_list.insert (target.get_index () + 1, source);
+                items_uncompleted_added.set (source.item.id.to_string (), source);
+    
+                listbox.show_all ();
+                update_item_order ();
+            } else {
+                Planner.notifications.send_notification (
+                    _("Unable to move task")
+                );
             }
-
-            source.get_parent ().remove (source);
-            items_list.remove (source);
-            items_uncompleted_added.set (source.item.id.to_string (), source);
-
-            listbox.insert (source, target.get_index () + 1);
-            items_list.insert (target.get_index () + 1, source);
-            items_uncompleted_added.set (source.item.id.to_string (), source);
-
-            listbox.show_all ();
-            update_item_order ();
         }
     }
 
@@ -1087,24 +1118,34 @@ public class Views.Project : Gtk.EventBox {
         var row = ((Gtk.Widget[]) selection_data.get_data ())[0];
         source = (Widgets.ItemRow) row;
 
-        if (source.item.section_id != 0) {
-            source.item.section_id = 0;
-            if (source.item.is_todoist == 1) {
-                Planner.todoist.move_item_to_section (source.item, 0);
+        if (source.item.is_todoist == project.is_todoist) {
+            if (source.item.project_id != project.id) {
+                Planner.database.update_item_project_id (source.item, project.id);
             }
+
+            if (source.item.section_id != 0) {
+                source.item.section_id = 0;
+                if (source.item.is_todoist == 1) {
+                    Planner.todoist.move_item_to_section (source.item, 0);
+                }
+            }
+    
+            source.get_parent ().remove (source);
+            items_list.remove (source);
+            items_uncompleted_added.set (source.item.id.to_string (), source);
+    
+            listbox.insert (source, 0);
+            items_list.insert (0, source);
+            items_uncompleted_added.set (source.item.id.to_string (), source);
+    
+            listbox.show_all ();
+            update_item_order ();
+            check_listbox_margin ();
+        } else {
+            Planner.notifications.send_notification (
+                _("Unable to move task")
+            );
         }
-
-        source.get_parent ().remove (source);
-        items_list.remove (source);
-        items_uncompleted_added.set (source.item.id.to_string (), source);
-
-        listbox.insert (source, 0);
-        items_list.insert (0, source);
-        items_uncompleted_added.set (source.item.id.to_string (), source);
-
-        listbox.show_all ();
-        update_item_order ();
-        check_listbox_margin ();
     }
 
     public bool on_drag_motion (Gdk.DragContext context, int x, int y, uint time) {
@@ -1149,7 +1190,7 @@ public class Views.Project : Gtk.EventBox {
         var sort_priority_menu = new Widgets.ModelButton (_("Sort by priority"), "edit-flag-symbolic", "");
         var sort_name_menu = new Widgets.ModelButton (_("Sort by name"), "font-x-generic-symbolic", "");
         //var archive_menu = new Widgets.ModelButton (_("Archive project"), "planner-archive-symbolic");
-        var share_item = new Widgets.ModelButton (_("Share"), "emblem-shared-symbolic", "", true);
+        var share_item = new Widgets.ModelButton (_("Utilities"), "applications-utilities-symbolic", "", true);
 
         var delete_menu = new Widgets.ModelButton (_("Delete"), "user-trash-symbolic");
         delete_menu.get_style_context ().add_class ("menu-danger");
@@ -1296,10 +1337,12 @@ public class Views.Project : Gtk.EventBox {
                 share_menu = new Gtk.Menu ();
 
                 var share_mail = new Widgets.ImageMenuItem (_("Send by e-mail"), "internet-mail-symbolic");
-                var share_markdown_menu = new Widgets.ImageMenuItem (_("Markdown"), "planner-markdown-symbolic");
+                var share_markdown_menu = new Widgets.ImageMenuItem (_("Share on Markdown"), "planner-markdown-symbolic");
+                var hide_items_menu = new Widgets.ImageMenuItem (_("Hide all tasks details"), "view-restore-symbolic");
 
                 share_menu.add (share_mail);
                 share_menu.add (share_markdown_menu);
+                share_menu.add (hide_items_menu);
                 share_menu.show_all ();
 
                 share_mail.activate.connect (() => {
@@ -1308,6 +1351,11 @@ public class Views.Project : Gtk.EventBox {
         
                 share_markdown_menu.activate.connect (() => {
                     project.share_markdown ();
+                });
+
+                hide_items_menu.activate.connect (() => {
+                    Planner.event_bus.hide_items_project (project.id);
+                    popover.popdown ();
                 });
             }
 

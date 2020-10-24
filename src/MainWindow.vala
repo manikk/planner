@@ -21,7 +21,9 @@
 
 public class MainWindow : Gtk.Window {
     public weak Planner app { get; construct; }
+
     public Gee.HashMap <string, bool> projects_loaded;
+    public Gee.HashMap <string, bool> tasklists_loaded;
 
     private Widgets.Pane pane;
     private Gtk.HeaderBar sidebar_header;
@@ -31,9 +33,10 @@ public class MainWindow : Gtk.Window {
     private Views.Today today_view = null;
     private Views.Upcoming upcoming_view = null;
     private Views.Completed completed_view = null;
+    private Views.AllTasks alltasks_view = null;
     private Views.Label label_view = null;
     private Views.Priority priority_view = null;
-
+    
     private Widgets.MultiSelectToolbar multiselect_toolbar;
     private Services.DBusServer dbus_server;
     public Services.ActionManager action_manager;
@@ -61,6 +64,7 @@ public class MainWindow : Gtk.Window {
         });
 
         projects_loaded = new Gee.HashMap <string, bool> ();
+        tasklists_loaded = new Gee.HashMap <string, bool> ();
 
         var header_revealer = new Gtk.Revealer ();
         header_revealer.transition_type = Gtk.RevealerTransitionType.SLIDE_LEFT;
@@ -123,13 +127,13 @@ public class MainWindow : Gtk.Window {
         slim_mode_button.get_style_context ().add_class ("dim-label");
         slim_mode_button.valign = Gtk.Align.CENTER;
 
-        var slim_mode_revealer = new Gtk.Revealer ();
-        slim_mode_revealer.valign = Gtk.Align.CENTER;
-        slim_mode_revealer.transition_type = Gtk.RevealerTransitionType.CROSSFADE;
-        slim_mode_revealer.add (slim_mode_button);
-        slim_mode_revealer.reveal_child = false;
+        //  var slim_mode_revealer = new Gtk.Revealer ();
+        //  slim_mode_revealer.valign = Gtk.Align.CENTER;
+        //  slim_mode_revealer.transition_type = Gtk.RevealerTransitionType.CROSSFADE;
+        //  slim_mode_revealer.add (slim_mode_button);
+        //  slim_mode_revealer.reveal_child = true;
 
-        sidebar_header.pack_end (slim_mode_revealer);
+        //  sidebar_header.pack_end (slim_mode_revealer);
         
         multiselect_toolbar = new Widgets.MultiSelectToolbar ();
 
@@ -150,6 +154,7 @@ public class MainWindow : Gtk.Window {
         // This must come after setting header_paned as the titlebar
         header_paned.get_style_context ().remove_class ("titlebar");
         get_style_context ().add_class ("rounded");
+        get_style_context ().add_class ("app");
         Planner.settings.bind ("pane-position", header_paned, "position", GLib.SettingsBindFlags.DEFAULT);
         Planner.settings.bind ("pane-position", paned, "position", GLib.SettingsBindFlags.DEFAULT);
 
@@ -186,7 +191,7 @@ public class MainWindow : Gtk.Window {
                         stack.add_named (project_view, "project-view-%s".printf (project_id.to_string ()));
                         stack.visible_child_name = "project-view-%s".printf (project_id.to_string ());
                     } else {
-                        go_view (0);
+                        go_view (1);
                     }
                 } else {
                     go_view (Planner.settings.get_int ("homepage-item"));
@@ -218,22 +223,6 @@ public class MainWindow : Gtk.Window {
             stack.visible_child_name = "welcome-view";
         });
 
-        //  slim_mode_handle.enter_notify_event.connect ((event) => {
-        //      slim_mode_revealer.reveal_child = true;
-
-        //      return true;
-        //  });
-
-        //  slim_mode_handle.leave_notify_event.connect ((event) => {
-        //      if (event.detail == Gdk.NotifyType.INFERIOR) {
-        //          return false;
-        //      }
-
-        //      slim_mode_revealer.reveal_child = false;
-
-        //      return true;
-        //  });
-
         welcome_view.activated.connect ((index) => {
             if (index == 0) {
                 // Save user name
@@ -261,7 +250,7 @@ public class MainWindow : Gtk.Window {
                 init_progress_controller ();
 
                 // Init Inbox Project
-                go_view (0);
+                go_view (1);
             } else if (index == 1) {
                 var todoist_oauth = new Dialogs.TodoistOAuth ();
                 todoist_oauth.show_all ();
@@ -273,6 +262,10 @@ public class MainWindow : Gtk.Window {
 
         pane.activated.connect ((id) => {
             go_view (id);
+        });
+
+        pane.tasklist_selected.connect ((source) => {
+            go_tasklist (source);
         });
 
         pane.show_quick_find.connect (show_quick_find);
@@ -290,7 +283,7 @@ public class MainWindow : Gtk.Window {
 
             // Create The New Inbox Project
             inbox_view = null;
-            go_view (0);
+            go_view (1);
 
             // Enable UI
             pane.sensitive_ui = true;
@@ -306,7 +299,7 @@ public class MainWindow : Gtk.Window {
                 stack.visible_child.destroy ();
                 stack.visible_child_name = "inbox-view";
 
-                pane.select_item (0);
+                pane.select_item (1);
             }
         });
 
@@ -371,6 +364,8 @@ public class MainWindow : Gtk.Window {
                 );
             } else if (key == "button-layout") {
                 check_button_layout ();
+            } else if (key == "font-scale") {
+                Planner.utils.update_font_scale ();
             }
         });
 
@@ -395,85 +390,9 @@ public class MainWindow : Gtk.Window {
         Planner.event_bus.hide_new_window_project.connect ((project_id) => {
             var project = ((Views.Project) stack.visible_child).project;
             if (project.id == project_id) {
-                go_view (0);
+                go_view (1);
             }
         });
-
-        // Planner.task_store.get_registry.begin ((obj, res) => {
-            // E.SourceRegistry registry;
-            //  try {
-            //      registry = Planner.task_store.get_registry.end (res);
-            //  } catch (Error e) {
-            //      critical (e.message);
-            //      return;
-            //  }
-
-            //  listbox.set_header_func (header_update_func);
-
-            //  var last_selected_list = Application.settings.get_string ("selected-list");
-            //  var default_task_list = registry.default_task_list;
-            // var task_lists = registry.list_sources (E.SOURCE_EXTENSION_TASK_LIST);
-
-            // task_lists.foreach ((source) => {
-                // E.SourceTaskList list = (E.SourceTaskList)source.get_extension (E.SOURCE_EXTENSION_TASK_LIST);
-                
-                // print ("Source: %s\n".printf (source.display_name));
-                //  if (list.selected == true && source.enabled == true) {
-                //      add_source (source);
-
-                //      if (last_selected_list == "" && default_task_list == source) {
-                //          listbox.select_row (source_rows[source]);
-
-                //      } else if (last_selected_list == source.uid) {
-                //          listbox.select_row (source_rows[source]);
-                //      }
-                //  }
-            // });
-
-            //  if (last_selected_list == "scheduled") {
-            //      listbox.select_row (scheduled_row);
-            //  }
-
-            //  listbox.row_selected.connect ((row) => {
-            //      if (row != null) {
-            //          if (row is Tasks.SourceRow) {
-            //              var source = ((Tasks.SourceRow) row).source;
-            //              listview.source = source;
-            //              Tasks.Application.settings.set_string ("selected-list", source.uid);
-
-            //              listview.add_view (source, "(contains? 'any' '')");
-
-            //              ((SimpleAction) lookup_action (ACTION_DELETE_SELECTED_LIST)).set_enabled (source.removable);
-
-            //          } else if (row is Tasks.ScheduledRow) {
-            //              listview.source = null;
-            //              Tasks.Application.settings.set_string ("selected-list", "scheduled");
-
-            //              var sources = registry.list_sources (E.SOURCE_EXTENSION_TASK_LIST);
-            //              var query = "AND (NOT is-completed?) (OR (has-start?) (has-alarms?))";
-
-            //              sources.foreach ((source) => {
-            //                  E.SourceTaskList list = (E.SourceTaskList)source.get_extension (E.SOURCE_EXTENSION_TASK_LIST);
-
-            //                  if (list.selected == true && source.enabled == true) {
-            //                      listview.add_view (source, query);
-            //                  }
-            //              });
-
-            //              ((SimpleAction) lookup_action (ACTION_DELETE_SELECTED_LIST)).set_enabled (false);
-            //          }
-
-            //      } else {
-            //          ((SimpleAction) lookup_action (ACTION_DELETE_SELECTED_LIST)).set_enabled (false);
-            //          var first_row = listbox.get_row_at_index (0);
-            //          if (first_row != null) {
-            //              listbox.select_row (first_row);
-            //          } else {
-            //              listview.source = null;
-            //          }
-            //      }
-            //  });
-        // });
     }
 
     public void init_progress_controller () {
@@ -556,7 +475,10 @@ public class MainWindow : Gtk.Window {
 
     public void go_view (int id) {
         if (id == 0) {
-            // print ("Inbox: %s\n".printf (Planner.settings.get_int64 ("inbox-project").to_string ()));
+            var dialog = new Dialogs.QuickFind ();
+            dialog.destroy.connect (Gtk.main_quit);
+            dialog.show_all ();
+        } else if (id == 1) {
             if (inbox_view == null) {
                 inbox_view = new Views.Inbox (
                     Planner.database.get_project_by_id (Planner.settings.get_int64 ("inbox-project"))
@@ -565,21 +487,21 @@ public class MainWindow : Gtk.Window {
             }
 
             stack.visible_child_name = "inbox-view";
-        } else if (id == 1) {
+        } else if (id == 2) {
             if (today_view == null) {
                 today_view = new Views.Today ();
                 stack.add_named (today_view, "today-view");
             }
 
             stack.visible_child_name = "today-view";
-        } else if (id == 2) {
+        } else if (id == 3) {
             if (upcoming_view == null) {
                 upcoming_view = new Views.Upcoming ();
                 stack.add_named (upcoming_view, "upcoming-view");
             }
 
             stack.visible_child_name = "upcoming-view";
-        } else if (id == 3) {
+        } else if (id == 4) {
             if (completed_view == null) {
                 completed_view = new Views.Completed ();
                 stack.add_named (completed_view, "completed-view");
@@ -587,6 +509,13 @@ public class MainWindow : Gtk.Window {
 
             completed_view.add_all_items ();
             stack.visible_child_name = "completed-view";
+        } else if (id == 5) {
+            if (alltasks_view == null) {
+                alltasks_view = new Views.AllTasks ();
+                stack.add_named (alltasks_view, "alltasks-view");
+            }
+            
+            stack.visible_child_name = "alltasks-view";
         }
 
         pane.select_item (id);
@@ -603,9 +532,17 @@ public class MainWindow : Gtk.Window {
             stack.add_named (project_view, "project-view-%s".printf (project.id.to_string ()));
             stack.visible_child_name = "project-view-%s".printf (project.id.to_string ());
         }
+    }
 
-        // Planner.utils.pane_project_selected (project.id, project.area_id);
-        // Planner.utils.select_pane_project (project.id);
+    public void go_tasklist (E.Source source) {
+        //  if (tasklists_loaded.has_key (source.uid)) {
+        //      stack.visible_child_name = "tasklist-%s".printf (source.uid);
+        //  } else {
+        //      tasklists_loaded.set (source.uid, true);
+        //      var tasklist_view = new Views.TaskList (source);
+        //      stack.add_named (tasklist_view, "tasklist-%s".printf (source.uid));
+        //      stack.visible_child_name = "tasklist-%s".printf (source.uid);
+        //  }
     }
 
     public void go_item (int64 item_id) {
@@ -761,7 +698,7 @@ public class MainWindow : Gtk.Window {
                 "upcoming",
                 new DateTime.now_local ().add_days (1).to_string ()
             );
-        } else {
+        } else if (stack.visible_child_name.has_prefix ("project")) {
             var project = ((Views.Project) stack.visible_child).project;
             Planner.event_bus.magic_button_activated (
                 project.id,
@@ -771,6 +708,8 @@ public class MainWindow : Gtk.Window {
                 "project",
                 ""
             );
+        } else if (stack.visible_child_name == "priority-view") {
+            priority_view.add_new_item (index);
         }
     }
 
@@ -785,9 +724,44 @@ public class MainWindow : Gtk.Window {
             label_view.hide_items ();
         } else if (stack.visible_child_name == "priority-view") {
             priority_view.hide_items ();
-        } else {
+        } else if (stack.visible_child_name.has_prefix ("project")) {
             var project = ((Views.Project) stack.visible_child).project;
             Planner.event_bus.hide_items_project (project.id);
+        }
+    }
+
+    public void open_new_project_window () {
+        if (stack.visible_child_name.has_prefix ("project")) {
+            var project = ((Views.Project) stack.visible_child).project;
+
+            var dialog = new Dialogs.Project (project, false);
+            dialog.destroy.connect (Gtk.main_quit);
+            dialog.show_all ();
+        }
+    }
+
+    public void sort (int sort) {
+        if (stack.visible_child_name == "inbox-view") {
+            Planner.database.update_sort_order_project (Planner.settings.get_int64 ("inbox-project"), sort);
+        } else if (stack.visible_child_name == "today-view") {
+            Planner.settings.set_int ("today-sort-order", sort);
+        } else if (stack.visible_child_name == "upcoming-view") {
+            
+        } else if (stack.visible_child_name == "label-view") {
+            
+        } else if (stack.visible_child_name == "priority-view") {
+            
+        } else if (stack.visible_child_name.has_prefix ("project")) {
+            var project = ((Views.Project) stack.visible_child).project;
+            Planner.database.update_sort_order_project (project.id, sort);
+        }
+    }
+
+    public void go_home () {
+        if (Planner.settings.get_boolean ("homepage-project")) {
+            go_project (Planner.settings.get_int64 ("homepage-project-id"));
+        } else {
+            go_view (Planner.settings.get_int ("homepage-item"));
         }
     }
 
@@ -807,7 +781,7 @@ public class MainWindow : Gtk.Window {
                 Planner.todoist.add_item (item, -1, temp_id_mapping);
                 Planner.notifications.send_undo_notification (
                     _("Adding task from clipboard…"),
-                    Planner.utils.build_undo_object ("item_add_from_clipboard", "item", temp_id_mapping, "", "")
+                    Planner.utils.build_undo_object ("item_add_from_clipboard", "item", temp_id_mapping.to_string (), "", "")
                 );
             } else {
                 item.id = Planner.utils.generate_id ();
@@ -823,7 +797,7 @@ public class MainWindow : Gtk.Window {
                 Planner.todoist.add_item (item, -1, temp_id_mapping);
                 Planner.notifications.send_undo_notification (
                     _("Adding task from clipboard…"),
-                    Planner.utils.build_undo_object ("item_add_from_clipboard", "item", temp_id_mapping, "", "")
+                    Planner.utils.build_undo_object ("item_add_from_clipboard", "item", temp_id_mapping.to_string (), "", "")
                 );
             } else {
                 item.id = Planner.utils.generate_id ();
@@ -839,13 +813,13 @@ public class MainWindow : Gtk.Window {
                 Planner.todoist.add_item (item, -1, temp_id_mapping);
                 Planner.notifications.send_undo_notification (
                     _("Adding task from clipboard…"),
-                    Planner.utils.build_undo_object ("item_add_from_clipboard", "item", temp_id_mapping, "", "")
+                    Planner.utils.build_undo_object ("item_add_from_clipboard", "item", temp_id_mapping.to_string (), "", "")
                 );
             } else {
                 item.id = Planner.utils.generate_id ();
                 Planner.database.insert_item (item, -1);
             }
-        } else {
+        } else if (stack.visible_child_name.has_prefix ("project")) {
             var project = ((Views.Project) stack.visible_child).project;
             item.project_id = project.id;
             item.is_todoist = project.is_todoist;
@@ -855,7 +829,7 @@ public class MainWindow : Gtk.Window {
                 Planner.todoist.add_item (item, -1, temp_id_mapping);
                 Planner.notifications.send_undo_notification (
                     _("Adding task from clipboard…"),
-                    Planner.utils.build_undo_object ("item_add_from_clipboard", "item", temp_id_mapping, "", "")
+                    Planner.utils.build_undo_object ("item_add_from_clipboard", "item", temp_id_mapping.to_string (), "", "")
                 );
             } else {
                 item.id = Planner.utils.generate_id ();
@@ -871,7 +845,7 @@ public class MainWindow : Gtk.Window {
 
         } else if (stack.visible_child_name == "upcoming-view") {
 
-        } else {
+        } else if (stack.visible_child_name.has_prefix ("project")) {
             var project_view = (Views.Project) stack.visible_child;
             project_view.open_new_section ();
         }
